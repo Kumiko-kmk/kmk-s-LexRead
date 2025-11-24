@@ -1,0 +1,5 @@
+{
+  "name": "Gemini Floating Translator",
+  "description": "A floating, resizable translation widget powered by Google Gemini. Select text on the page to instantly translate it.",
+  "requestFramePermissions": []
+}
