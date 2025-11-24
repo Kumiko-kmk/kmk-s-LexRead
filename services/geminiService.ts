@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { TranslationMode } from "../types";
 
@@ -14,15 +15,18 @@ const getModelName = (mode: TranslationMode): string => {
 export const translateText = async (
   text: string,
   targetLanguage: string,
-  mode: TranslationMode
+  mode: TranslationMode,
+  apiKey?: string
 ): Promise<string> => {
   if (!text || !text.trim()) return "";
   
-  if (!process.env.API_KEY) {
-    throw new Error("API Key is missing. Please check your environment configuration.");
+  const keyToUse = apiKey || process.env.API_KEY;
+
+  if (!keyToUse) {
+    throw new Error("API Key is missing. Please enter it in Settings or check your environment configuration.");
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: keyToUse });
   const modelName = getModelName(mode);
   
   const prompt = `Translate the following text into ${targetLanguage}. 
@@ -41,6 +45,6 @@ export const translateText = async (
     return response.text || "Translation failed.";
   } catch (error) {
     console.error("Gemini Translation Error:", error);
-    return "Error: Could not translate text. Please try again.";
+    return "Error: Could not translate text. Please check your API key and try again.";
   }
 };

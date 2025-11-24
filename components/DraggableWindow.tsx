@@ -14,7 +14,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
   const { settings, updateSettings } = useSettings();
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const [size, setSize] = useState({ w: 647, h: 400 });
-  const [splitRatio, setSplitRatio] = useState(0.4); 
+  const [splitRatio, setSplitRatio] = useState(0.5); // Set to 0.5 for equal height default
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -31,6 +31,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
   const resizeStartRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
   const dividerDragRef = useRef<{ startY: number; startRatio: number } | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
+  const debounceTimerRef = useRef<number | null>(null);
 
   // --- Toast Logic ---
   const showToast = (msg: string) => {
@@ -41,18 +42,24 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
 
   // --- Translation Logic ---
   const handleTranslate = useCallback(async (text: string) => {
-    if (!text.trim()) return;
+    if (!text.trim()) {
+      setTranslationState(prev => ({ ...prev, isTranslating: false }));
+      return;
+    }
 
     setTranslationState(prev => ({ 
       ...prev, 
-      sourceText: text, 
-      translatedText: '', 
       isTranslating: true, 
       error: null 
     }));
     
     try {
-      const result = await translateText(text, settings.targetLanguage, settings.mode);
+      const result = await translateText(
+        text, 
+        settings.targetLanguage, 
+        settings.mode,
+        settings.apiKey // Pass the API key from settings
+      );
       setTranslationState(prev => ({ 
         ...prev, 
         translatedText: result, 
@@ -65,7 +72,23 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
         error: "Translation failed. Please check your network or API key." 
       }));
     }
-  }, [settings.targetLanguage, settings.mode]);
+  }, [settings.targetLanguage, settings.mode, settings.apiKey]);
+
+  // --- Input Change Logic (Typing/Pasting) ---
+  const handleSourceChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newText = e.target.value;
+    setTranslationState(prev => ({ ...prev, sourceText: newText }));
+
+    if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
+
+    debounceTimerRef.current = window.setTimeout(() => {
+        if (newText.trim()) {
+            handleTranslate(newText);
+        } else {
+            setTranslationState(prev => ({ ...prev, translatedText: '', isTranslating: false }));
+        }
+    }, 800);
+  };
 
   // Handle external text selection
   useEffect(() => {
@@ -79,6 +102,8 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
       
       if (text && text.trim().length > 0) {
         setIsVisible(true);
+        // Immediate update for selection
+        setTranslationState(prev => ({ ...prev, sourceText: text }));
         handleTranslate(text);
       }
     };
@@ -95,34 +120,19 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.targetLanguage, settings.mode]);
 
+  // Clean up
+  useEffect(() => {
+      return () => {
+          if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
+          if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
+      }
+  }, []);
+
 
   // --- Context Menu (Right Click) Logic ---
-  const handleSourceContextMenu = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text && text.trim().length > 0) {
-        // Explicitly clear and replace
-        setTranslationState(prev => ({
-          ...prev,
-          sourceText: '',
-          translatedText: '',
-          isTranslating: true,
-          error: null
-        }));
-        
-        // Short delay to ensure state update visual (optional, but good for UX) then process
-        setTimeout(() => handleTranslate(text), 50);
-
-        const isAsianLang = settings.targetLanguage.includes('Chinese') || settings.targetLanguage.includes('Japanese');
-        showToast(isAsianLang ? "原文已粘贴~" : "Source Pasted~");
-      }
-    } catch (err) {
-      console.error('Failed to read clipboard', err);
-      showToast("Clipboard access denied");
-    }
-  };
-
+  // Note: We rely on native browser behavior for the source textarea to handle pasting.
+  // This prevents "Clipboard API blocked" errors that occur with programmatic reading.
+  
   const handleTargetContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (!translationState.translatedText) return;
@@ -131,19 +141,20 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
       await navigator.clipboard.writeText(translationState.translatedText);
       // Determine toast message based on target language
       const isAsianLang = settings.targetLanguage.includes('Chinese') || settings.targetLanguage.includes('Japanese');
-      // Updated message to "Copied" (拷贝) instead of "Pasted" (粘贴)
       showToast(isAsianLang ? "译文已拷贝~" : "Translation Copied~");
     } catch (err) {
       console.error('Failed to write clipboard', err);
+      showToast("Copy failed - please select and copy manually");
     }
   };
 
   // --- Drag & Resize Logic ---
   const handleMouseDown = (e: React.MouseEvent) => {
     if (settings.isPinned) return;
-    if ((e.target as HTMLElement).closest('button')) return; 
+    // Prevent drag when clicking buttons or inputs/textareas
+    if ((e.target as HTMLElement).closest('button, textarea')) return; 
     
-    e.preventDefault(); // CRITICAL: Prevents text selection/native drag which causes "sticking"
+    e.preventDefault(); 
     
     dragStartRef.current = { 
       x: e.clientX - position.x, 
@@ -258,136 +269,118 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
           className={`flex items-center justify-between px-3 border-b ${getBorderColor()} cursor-move select-none rounded-t-xl shrink-0 h-[30px]`}
         >
           <div className="flex items-center gap-2">
-            <span className="text-lg leading-none select-none">📖</span>
-            <span className={`text-sm font-semibold tracking-wide select-none ${getTextColor()}`}>kmk's LexRead</span>
+            <div className={`w-2.5 h-2.5 rounded-full ${translationState.isTranslating ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
+            <span className={`text-xs font-medium ${getSubTextColor()}`}>kmk's LexRead</span>
           </div>
-          
           <div className="flex items-center gap-1">
-            <button 
+             <button 
               onClick={() => updateSettings({ isPinned: !settings.isPinned })}
-              className={`p-1 rounded-md transition-colors ${settings.isPinned ? 'bg-blue-100 text-blue-600' : `hover:bg-black/5 ${getSubTextColor()}`}`}
-              title={settings.isPinned ? "Unpin Window" : "Pin Window"}
+              className={`p-1 rounded-md transition-colors ${settings.isPinned ? 'bg-blue-100 text-blue-600' : `text-gray-400 hover:bg-black/5`}`}
+              title="Pin Window"
             >
-              <Pin size={12} className={settings.isPinned ? "fill-current" : ""} />
+              <Pin size={12} />
             </button>
             <button 
               onClick={() => setIsSettingsOpen(true)}
-              className={`p-1 rounded-md hover:bg-black/5 transition-colors ${getSubTextColor()}`}
+              className={`p-1 rounded-md text-gray-400 hover:bg-black/5 transition-colors`}
               title="Settings"
             >
               <Settings size={12} />
             </button>
             <button 
               onClick={() => setIsVisible(false)}
-              className={`p-1 rounded-md hover:bg-red-100 hover:text-red-600 transition-colors ${getSubTextColor()}`}
-              title="Close"
+              className={`p-1 rounded-md text-gray-400 hover:bg-red-100 hover:text-red-500 transition-colors`}
+              title="Minimize"
             >
               <X size={12} />
             </button>
           </div>
         </div>
 
-        {/* Split Content Area */}
-        <div className="flex-1 flex flex-col overflow-hidden relative group/window">
+        {/* Content Area */}
+        <div className="flex-1 flex flex-col relative overflow-hidden">
           
-          {/* Toast Notification */}
-          {toastMessage && (
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-black/80 text-white px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 shadow-lg animate-in fade-in zoom-in duration-200 pointer-events-none">
-              <CheckCircle2 size={16} className="text-green-400" />
-              {toastMessage}
-            </div>
-          )}
-
-          {/* Source Pane */}
-          <div 
-            style={{ height: `${splitRatio * 100}%` }} 
-            className="w-full flex flex-col min-h-0"
-          >
-            {/* Source Label Bar */}
-            <div className={`px-4 py-1.5 shrink-0 flex items-center justify-between border-b ${getBorderColor()} bg-opacity-50 ${settings.themeColor}`}>
-               <span className={`text-xs font-medium ${getSubTextColor()}`}>Detected Language</span>
-               <span className={`text-xs ${getSubTextColor()} font-mono`}>
-                 字符 {translationState.sourceText.length} 个
-               </span>
-            </div>
-
-            {/* Source Content - Right Click to Paste */}
-            <div 
-              onContextMenu={handleSourceContextMenu}
-              className="flex-1 p-4 overflow-y-auto min-h-0 cursor-text hover:bg-black/[0.02] transition-colors"
-              title="Right click to paste from clipboard"
-            >
-              {translationState.sourceText ? (
-                <p className={`${settings.textSize} ${getTextColor()} leading-relaxed whitespace-pre-wrap`}>
-                  {translationState.sourceText}
-                </p>
-              ) : (
-                <div className={`h-full flex flex-col items-center justify-center text-center ${getSubTextColor()} opacity-60`}>
-                  <p className="text-sm italic">Select text on page</p>
-                  <p className="text-xs mt-1">- or -</p>
-                  <p className="text-xs font-medium mt-1">Right Click to Paste</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Draggable Divider */}
-          <div 
-             onMouseDown={handleDividerMouseDown}
-             className={`h-2 shrink-0 cursor-row-resize flex items-center justify-center transition-colors group ${getDividerColor()}`}
-          >
-             <div className="w-8 h-1 rounded-full bg-black/10 group-hover:bg-black/20" />
-          </div>
-
-          {/* Target Pane */}
-          <div 
-             className="flex-1 flex flex-col w-full min-h-0"
-          >
-             {/* Target Label Bar */}
-             <div className={`px-4 py-1.5 shrink-0 flex items-center justify-between border-b ${getBorderColor()} bg-opacity-50 ${settings.themeColor}`}>
-               <div className="flex items-center gap-2">
-                 <span className={`text-xs font-medium ${getSubTextColor()}`}>{settings.targetLanguage}</span>
-                 {translationState.isTranslating && (
-                   <span className="text-xs text-blue-500 font-medium animate-pulse">Translating...</span>
-                 )}
-               </div>
-               <span className={`text-xs ${getSubTextColor()} font-mono`}>
-                 字符 {translationState.translatedText.length} 个
-               </span>
+          {/* Top Pane: Source */}
+          <div style={{ height: `${splitRatio * 100}%` }} className="flex flex-col min-h-0">
+             <div className="px-3 py-1 flex justify-between items-center text-[10px] uppercase tracking-wider opacity-60 shrink-0 select-none">
+                <span>Detected Language</span>
+                <span>{translationState.sourceText.length} chars</span>
              </div>
+             
+             {/* Use standard Textarea for native behavior */}
+             <textarea 
+               className={`flex-1 w-full p-3 bg-transparent resize-none border-none outline-none ${settings.textSize} ${getTextColor()}`}
+               placeholder="Select text on page or paste here..."
+               value={translationState.sourceText}
+               onChange={handleSourceChange}
+               spellCheck={false}
+             />
+          </div>
 
-             {/* Target Content - Right Click to Copy */}
+          {/* Divider */}
+          <div 
+            className={`h-2 w-full cursor-row-resize flex items-center justify-center shrink-0 transition-colors ${getDividerColor()}`}
+            onMouseDown={handleDividerMouseDown}
+          >
+            <div className="w-8 h-1 bg-black/10 rounded-full" />
+          </div>
+
+          {/* Bottom Pane: Target */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="px-3 py-1 flex justify-between items-center text-[10px] uppercase tracking-wider opacity-60 shrink-0 select-none">
+                <span>{settings.targetLanguage}</span>
+                <span>{translationState.translatedText.length} chars</span>
+             </div>
+             
              <div 
+               className={`flex-1 overflow-y-auto p-3 ${settings.textSize} ${getTextColor()} selection:bg-blue-200 selection:text-blue-900`}
                onContextMenu={handleTargetContextMenu}
-               className="flex-1 p-4 overflow-y-auto min-h-0 cursor-text hover:bg-black/[0.02] transition-colors"
-               title="Right click to copy translation"
              >
-               {translationState.error ? (
-                  <div className="flex items-center gap-2 text-red-500 text-sm mt-2 bg-red-50 p-2 rounded-md">
-                    <AlertCircle size={16} />
-                    {translationState.error}
+                {translationState.isTranslating ? (
+                  <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
+                    <RefreshCw className="animate-spin" size={20} />
+                    <span className="text-sm">Translating...</span>
                   </div>
-               ) : (
-                 <p className={`${settings.textSize} ${getTextColor()} leading-relaxed font-medium whitespace-pre-wrap`}>
-                   {translationState.translatedText}
-                 </p>
-               )}
+                ) : translationState.error ? (
+                  <div className="flex flex-col items-center justify-center h-full text-red-500 gap-2 text-center">
+                    <AlertCircle size={20} />
+                    <span className="text-sm">{translationState.error}</span>
+                  </div>
+                ) : translationState.translatedText ? (
+                  <div className="whitespace-pre-wrap leading-relaxed">
+                    {translationState.translatedText}
+                  </div>
+                ) : (
+                  <div className="h-full flex items-center justify-center opacity-30 select-none">
+                    <span className="italic">Translation will appear here</span>
+                  </div>
+                )}
              </div>
           </div>
 
-          {/* Window Resize Handle */}
-          <div 
-            onMouseDown={handleResizeMouseDown}
-            className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize flex items-center justify-center opacity-50 hover:opacity-100 z-50"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M10 0L10 10L0 10" stroke={settings.themeColor === ThemeColor.DARK ? "white" : "black"} strokeWidth="2"/>
-            </svg>
-          </div>
         </div>
+        
+        {/* Resize Handle */}
+        <div 
+          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-50 flex items-end justify-end p-0.5 opacity-50 hover:opacity-100"
+          onMouseDown={handleResizeMouseDown}
+        >
+          <div className={`w-2 h-2 border-r-2 border-b-2 ${settings.themeColor === ThemeColor.DARK ? 'border-gray-500' : 'border-gray-400'}`} />
+        </div>
+
+        {/* Toast Notification */}
+        {toastMessage && (
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/75 text-white px-4 py-2 rounded-full text-sm font-medium backdrop-blur-sm animate-in fade-in zoom-in duration-200 flex items-center gap-2 shadow-lg z-50 pointer-events-none">
+            <CheckCircle2 size={16} className="text-green-400"/>
+            {toastMessage}
+          </div>
+        )}
       </div>
 
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+      />
     </>
   );
 };

@@ -35,6 +35,7 @@ export interface AppSettings {
   themeColor: ThemeColor;
   mode: TranslationMode;
   isPinned: boolean;
+  apiKey: string;
 }
 
 export interface TranslationState {

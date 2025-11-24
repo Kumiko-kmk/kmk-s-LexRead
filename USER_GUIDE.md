@@ -14,8 +14,8 @@
 |                                                             |
 |  "Artificial Intelligence is..."                            |
 |                                                             |
-|  🖱️ Right Click here to PASTE from clipboard & Translate.   |
-|  🖱️ 在此处右键点击即可从剪贴板粘贴并自动翻译。               |
+|  🖱️ Paste text here (Ctrl+V) or type manually.             |
+|  🖱️ 在此处粘贴文本 (Ctrl+V) 或手动输入。                    |
 |                                                             |
 +-------------------------------------------------------------+
 | ===================== [ DRAG TO RESIZE ] ================== |  <-- Split Divider
@@ -30,7 +30,7 @@
 |  🖱️ Right Click here to COPY all translation.               |
 |  🖱️ 在此处右键点击即可复制所有译文。                         |
 |                                                             |
-|            (Popup: "译文已粘贴~")                           |
+|            (Popup: "Translation Copied~")                   |
 +-------------------------------------------------------------+
                                                           [◢]    <-- Resize Handle
 ```
@@ -47,14 +47,14 @@
 *   **Action**: Select any text on a webpage or document outside the app.
 *   **操作**: 在应用外的任何网页或文档中选择文本。
 
-### 3. Manual Paste / 手动粘贴
-*   **Action**: **Right-click** inside the **Top (Source)** area.
-*   **Result**: Text from your clipboard is pasted and translated immediately.
-*   **操作**: 在**上方（原文）**区域内点击**右键**。应用会自动读取剪贴板内容并翻译。
+### 3. Manual Input / 手动输入
+*   **Action**: Click inside the **Top (Source)** area and **Type** or **Paste (Ctrl+V)**.
+*   **Result**: Text is translated automatically after you stop typing.
+*   **操作**: 点击**上方（原文）**区域并**输入**或**粘贴 (Ctrl+V)**。停止输入后会自动翻译。
 
 ### 4. Copy Translation / 复制译文
 *   **Action**: **Right-click** inside the **Bottom (Target)** area.
-*   **Result**: All translated text is copied. A message "译文已粘贴~" appears.
+*   **Result**: All translated text is copied. A message "Translation Copied" appears.
 *   **操作**: 在**下方（译文）**区域内点击**右键**。译文将被复制，并显示提示。
 
 ### 5. Resizing / 调整大小
@@ -68,4 +68,3 @@
 *   Change Colors (Mint/Rose/Dark etc.).
 *   Change Text Size.
 *   修改目标语言、颜色主题、字体大小。
-

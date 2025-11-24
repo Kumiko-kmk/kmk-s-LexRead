@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { X, Check } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Check, Eye, EyeOff } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { TextSize, ThemeColor, TranslationMode, TextColor } from '../types';
 
@@ -15,6 +15,7 @@ const LANGUAGES = [
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const { settings, updateSettings } = useSettings();
+  const [showApiKey, setShowApiKey] = useState(false);
 
   if (!isOpen) return null;
 
@@ -33,6 +34,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
         <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
           
+          {/* API Key Section */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">API Key</label>
+            <div className="relative">
+              <input
+                type={showApiKey ? "text" : "password"}
+                value={settings.apiKey}
+                onChange={(e) => updateSettings({ apiKey: e.target.value })}
+                placeholder="Enter your Gemini API Key"
+                className="w-full p-2.5 pr-10 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-sm"
+              />
+              <button
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="absolute right-2 top-2.5 text-gray-400 hover:text-gray-600"
+              >
+                {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Your API key is stored locally in your browser.
+            </p>
+          </div>
+
           {/* Target Language */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">Target Language</label>

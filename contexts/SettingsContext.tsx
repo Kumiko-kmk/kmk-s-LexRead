@@ -14,6 +14,7 @@ const defaultSettings: AppSettings = {
   themeColor: ThemeColor.MINT, // Changed default to Mint (Light Green)
   mode: TranslationMode.FAST,
   isPinned: false,
+  apiKey: '',
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);

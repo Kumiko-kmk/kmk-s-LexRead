@@ -3,7 +3,7 @@
 
 A lightweight, floating translation widget powered by Google Gemini AI. Select text on any page to instantly translate it.
 
-**New:** Supports Manual Paste (Right-click Source) and Copy (Right-click Target)!
+**New:** Supports Manual Paste and Copy!
 
 ---
 
@@ -16,7 +16,7 @@ Please refer to [USER_GUIDE.md](./USER_GUIDE.md) for a visual guide on the inter
 ## Features / 功能
 
 *   **Instant Translation**: Select text to translate immediately.
-*   **Manual Paste**: Right-click the source area to paste from clipboard.
+*   **Manual Input**: Type or Paste (Ctrl+V) text directly into the source area.
 *   **Manual Copy**: Right-click the translation area to copy result.
 *   **Powered by Gemini**: Uses Gemini 2.5 Flash (Fast) or Gemini 3 Pro (Precise).
 *   **Resizable & Draggable**: Floating window with a split-pane layout.
