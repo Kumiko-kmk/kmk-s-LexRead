@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Settings, Pin, X, AlertCircle, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
@@ -12,11 +11,11 @@ interface DraggableWindowProps {
 
 export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText }) => {
   const { settings, updateSettings } = useSettings();
-  const [position, setPosition] = useState({ x: 20, y: 20 });
-  const [size, setSize] = useState({ w: 647, h: 400 });
-  const [splitRatio, setSplitRatio] = useState(0.5); // Set to 0.5 for equal height default
+  const [splitRatio, setSplitRatio] = useState(0.5);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isVisible, setIsVisible] = useState(true);
+  
+  // Note: We don't need isVisible state anymore because minimizing is handled by Electron/OS
+  
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   
   const [translationState, setTranslationState] = useState<TranslationState>({
@@ -26,12 +25,23 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
     error: null,
   });
 
-  const windowRef = useRef<HTMLDivElement>(null);
-  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
-  const resizeStartRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
   const dividerDragRef = useRef<{ startY: number; startRatio: number } | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // --- Sync Pin State with Electron ---
+  useEffect(() => {
+    try {
+      // Communicate with Electron main process
+      const electron = (window as any).require?.('electron');
+      if (electron) {
+        electron.ipcRenderer.send('update-pin-state', settings.isPinned);
+      }
+    } catch (e) {
+      console.warn('Electron IPC not available');
+    }
+  }, [settings.isPinned]);
 
   // --- Toast Logic ---
   const showToast = (msg: string) => {
@@ -58,7 +68,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
         text, 
         settings.targetLanguage, 
         settings.mode,
-        settings.apiKey // Pass the API key from settings
+        settings.apiKey
       );
       setTranslationState(prev => ({ 
         ...prev, 
@@ -74,7 +84,40 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
     }
   }, [settings.targetLanguage, settings.mode, settings.apiKey]);
 
-  // --- Input Change Logic (Typing/Pasting) ---
+  // --- Clipboard Auto-Read Logic ---
+  // When the window gains focus, we check the clipboard.
+  // If the text is different from current source, we update and translate.
+  useEffect(() => {
+    const checkClipboard = async () => {
+        // Only read clipboard if source is empty OR user just switched to the app
+        // We avoid overwriting if user is actively typing.
+        if (document.activeElement?.tagName === 'TEXTAREA') return;
+
+        try {
+            const text = await navigator.clipboard.readText();
+            
+            // Security Fix: Do NOT paste if the clipboard content matches the API Key
+            if (settings.apiKey && text.trim() === settings.apiKey.trim()) {
+              return;
+            }
+
+            if (text && text.trim() && text !== translationState.sourceText) {
+                // Optional: You could add a check here to only auto-paste if text length is reasonable
+                setTranslationState(prev => ({ ...prev, sourceText: text }));
+                handleTranslate(text);
+                showToast("Text pasted from clipboard");
+            }
+        } catch (e) {
+            // Permission denied or empty
+        }
+    };
+
+    window.addEventListener('focus', checkClipboard);
+    return () => window.removeEventListener('focus', checkClipboard);
+  }, [translationState.sourceText, handleTranslate, settings.apiKey]);
+
+
+  // --- Input Change Logic ---
   const handleSourceChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newText = e.target.value;
     setTranslationState(prev => ({ ...prev, sourceText: newText }));
@@ -90,28 +133,6 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
     }, 800);
   };
 
-  // Handle external text selection
-  useEffect(() => {
-    const handleSelection = (e: MouseEvent) => {
-      if (windowRef.current && windowRef.current.contains(e.target as Node)) {
-        return;
-      }
-
-      const selection = window.getSelection();
-      const text = selection?.toString();
-      
-      if (text && text.trim().length > 0) {
-        setIsVisible(true);
-        // Immediate update for selection
-        setTranslationState(prev => ({ ...prev, sourceText: text }));
-        handleTranslate(text);
-      }
-    };
-
-    document.addEventListener('mouseup', handleSelection);
-    return () => document.removeEventListener('mouseup', handleSelection);
-  }, [handleTranslate]);
-
   // Re-translate if language changes
   useEffect(() => {
     if (translationState.sourceText && !translationState.isTranslating && translationState.translatedText) {
@@ -120,64 +141,22 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.targetLanguage, settings.mode]);
 
-  // Clean up
-  useEffect(() => {
-      return () => {
-          if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
-          if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
-      }
-  }, []);
 
-
-  // --- Context Menu (Right Click) Logic ---
-  // Note: We rely on native browser behavior for the source textarea to handle pasting.
-  // This prevents "Clipboard API blocked" errors that occur with programmatic reading.
-  
   const handleTargetContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (!translationState.translatedText) return;
 
     try {
       await navigator.clipboard.writeText(translationState.translatedText);
-      // Determine toast message based on target language
       const isAsianLang = settings.targetLanguage.includes('Chinese') || settings.targetLanguage.includes('Japanese');
       showToast(isAsianLang ? "译文已拷贝~" : "Translation Copied~");
     } catch (err) {
       console.error('Failed to write clipboard', err);
-      showToast("Copy failed - please select and copy manually");
+      showToast("Copy failed");
     }
   };
 
-  // --- Drag & Resize Logic ---
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (settings.isPinned) return;
-    // Prevent drag when clicking buttons or inputs/textareas
-    if ((e.target as HTMLElement).closest('button, textarea')) return; 
-    
-    e.preventDefault(); 
-    
-    dragStartRef.current = { 
-      x: e.clientX - position.x, 
-      y: e.clientY - position.y 
-    };
-    
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  };
-
-  const handleResizeMouseDown = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    resizeStartRef.current = {
-      w: size.w,
-      h: size.h,
-      x: e.clientX,
-      y: e.clientY
-    };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  };
-
+  // --- Split Divider Logic ---
   const handleDividerMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault(); 
@@ -190,35 +169,10 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
   };
 
   const handleMouseMove = (e: MouseEvent) => {
-    if (dragStartRef.current) {
-      const newX = e.clientX - dragStartRef.current.x;
-      const newY = e.clientY - dragStartRef.current.y;
-      
-      const maxX = window.innerWidth - 100; // Allow some overlap
-      const maxY = window.innerHeight - 30;
-
-      setPosition({
-        x: Math.min(Math.max(-200, newX), maxX), // Allow slight off-screen
-        y: Math.min(Math.max(0, newY), maxY)
-      });
-      return;
-    }
-
-    if (resizeStartRef.current) {
-      const deltaX = e.clientX - resizeStartRef.current.x;
-      const deltaY = e.clientY - resizeStartRef.current.y;
-      
-      setSize({
-        w: Math.max(320, resizeStartRef.current.w + deltaX),
-        h: Math.max(250, resizeStartRef.current.h + deltaY)
-      });
-      return;
-    }
-
-    if (dividerDragRef.current) {
+    if (dividerDragRef.current && containerRef.current) {
+      const containerHeight = containerRef.current.clientHeight;
       const deltaY = e.clientY - dividerDragRef.current.startY;
-      const contentHeight = size.h - 30; 
-      const ratioDelta = deltaY / contentHeight;
+      const ratioDelta = deltaY / (containerHeight - 30); // 30 is header height
       
       const newRatio = Math.min(Math.max(0.2, dividerDragRef.current.startRatio + ratioDelta), 0.8);
       setSplitRatio(newRatio);
@@ -226,11 +180,14 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
   };
 
   const handleMouseUp = () => {
-    dragStartRef.current = null;
-    resizeStartRef.current = null;
     dividerDragRef.current = null;
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', handleMouseUp);
+  };
+
+  // --- Close App ---
+  const handleClose = () => {
+    window.close(); // Electron close
   };
 
   const getTextColor = () => settings.themeColor === ThemeColor.DARK ? 'text-gray-100' : settings.textColor;
@@ -241,38 +198,23 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
      return 'bg-gray-200 hover:bg-gray-300';
   }
 
-  if (!isVisible) {
-    return (
-      <button 
-        onClick={() => setIsVisible(true)}
-        className="fixed bottom-4 right-4 bg-blue-600 text-white p-3 rounded-full shadow-xl hover:bg-blue-700 transition-all z-50 animate-in fade-in zoom-in"
-      >
-        <RefreshCw size={24} />
-      </button>
-    );
-  }
-
   return (
     <>
       <div 
-        ref={windowRef}
-        style={{ 
-          transform: `translate(${position.x}px, ${position.y}px)`,
-          width: size.w,
-          height: size.h,
-        }}
-        className={`fixed top-0 left-0 z-40 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border backdrop-blur-md flex flex-col transition-colors duration-200 ${settings.themeColor} ${getBorderColor()}`}
+        ref={containerRef}
+        className={`w-full h-full flex flex-col transition-colors duration-200 ${settings.themeColor} ${getBorderColor()} border-2 rounded-xl overflow-hidden shadow-2xl`}
       >
-        {/* Header - Compact */}
+        {/* Header - Native Drag Region */}
         <div 
-          onMouseDown={handleMouseDown}
-          className={`flex items-center justify-between px-3 border-b ${getBorderColor()} cursor-move select-none rounded-t-xl shrink-0 h-[30px]`}
+          className={`flex items-center justify-between px-3 border-b ${getBorderColor()} select-none shrink-0 h-[30px]`}
+          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} 
         >
           <div className="flex items-center gap-2">
             <div className={`w-2.5 h-2.5 rounded-full ${translationState.isTranslating ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
             <span className={`text-xs font-medium ${getSubTextColor()}`}>kmk's LexRead</span>
           </div>
-          <div className="flex items-center gap-1">
+          {/* Buttons area must be no-drag so they are clickable */}
+          <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
              <button 
               onClick={() => updateSettings({ isPinned: !settings.isPinned })}
               className={`p-1 rounded-md transition-colors ${settings.isPinned ? 'bg-blue-100 text-blue-600' : `text-gray-400 hover:bg-black/5`}`}
@@ -288,9 +230,9 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
               <Settings size={12} />
             </button>
             <button 
-              onClick={() => setIsVisible(false)}
+              onClick={handleClose}
               className={`p-1 rounded-md text-gray-400 hover:bg-red-100 hover:text-red-500 transition-colors`}
-              title="Minimize"
+              title="Close"
             >
               <X size={12} />
             </button>
@@ -303,14 +245,13 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
           {/* Top Pane: Source */}
           <div style={{ height: `${splitRatio * 100}%` }} className="flex flex-col min-h-0">
              <div className="px-3 py-1 flex justify-between items-center text-[10px] uppercase tracking-wider opacity-60 shrink-0 select-none">
-                <span>Detected Language</span>
+                <span>Source</span>
                 <span>{translationState.sourceText.length} chars</span>
              </div>
              
-             {/* Use standard Textarea for native behavior */}
              <textarea 
                className={`flex-1 w-full p-3 bg-transparent resize-none border-none outline-none ${settings.textSize} ${getTextColor()}`}
-               placeholder="Select text on page or paste here..."
+               placeholder="Paste text (Ctrl+V) or just click window to paste from clipboard..."
                value={translationState.sourceText}
                onChange={handleSourceChange}
                spellCheck={false}
@@ -352,20 +293,11 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({ initialText })
                   </div>
                 ) : (
                   <div className="h-full flex items-center justify-center opacity-30 select-none">
-                    <span className="italic">Translation will appear here</span>
+                    <span className="italic">Waiting for text...</span>
                   </div>
                 )}
              </div>
           </div>
-
-        </div>
-        
-        {/* Resize Handle */}
-        <div 
-          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-50 flex items-end justify-end p-0.5 opacity-50 hover:opacity-100"
-          onMouseDown={handleResizeMouseDown}
-        >
-          <div className={`w-2 h-2 border-r-2 border-b-2 ${settings.themeColor === ThemeColor.DARK ? 'border-gray-500' : 'border-gray-400'}`} />
         </div>
 
         {/* Toast Notification */}

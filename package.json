@@ -1,23 +1,50 @@
 {
-  "name": "gemini-floating-translator",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "name": "kmk-lexread",
+  "version": "1.0.0",
+  "description": "Gemini Floating Translator",
+  "main": "electron.js",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc && vite build && electron-builder",
     "preview": "vite preview"
   },
+  "keywords": [
+    "gemini",
+    "translator",
+    "electron",
+    "react"
+  ],
+  "author": "kmk",
+  "license": "ISC",
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "lucide-react": "^0.554.0",
-    "@google/genai": "^1.30.0"
+    "@google/genai": "^1.30.0",
+    "lucide-react": "^0.344.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.1"
+  },
+  "build": {
+    "appId": "com.kmk.lexread",
+    "productName": "LexRead",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron.js",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/favicon.ico"
+    }
   }
 }
